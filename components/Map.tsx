@@ -52,44 +52,70 @@ const INITIAL_PLACES = [
 ];
 
 interface Feedback {
-    likes: number;
-    dislikes: number;
-    clicked: 'like' | 'dislike' | null;
-}  
+  likes: number;
+  dislikes: number;
+  clicked: 'like' | 'dislike' | null;
+}
 
-// Modified CenterMarker now accepts a callback to update the selected position
-function CenterMarker({ onPositionChange }: { onPositionChange?: (position: [number, number]) => void }) {
+/**
+ * Recenter: When the external selectedPosition changes, update the map view.
+ */
+function Recenter({ position }: { position: [number, number] }) {
   const map = useMap();
-  const [position, setPosition] = useState(map.getCenter());
-
   useEffect(() => {
-    const updatePosition = () => {
-      const newCenter = map.getCenter();
-      setPosition(newCenter);
-      if (onPositionChange) onPositionChange([newCenter.lat, newCenter.lng]);
-    };
-    // Using 'moveend' ensures we update after the user stops panning
-    map.on('moveend', updatePosition);
-    // Also update immediately on mount
-    updatePosition();
-    return () => {
-      map.off('moveend', updatePosition);
-    };
-  }, [map, onPositionChange]);
+    if (position) {
+      map.setView(position);
+    }
+  }, [position, map]);
+  return null;
+}
 
+/**
+ * CenterMarker: A static marker that always sits at the current center of the map.
+ */
+function CenterMarker() {
+  const map = useMap();
+  const center = map.getCenter();
   return (
     <Marker
-      position={position}
+      position={center}
       icon={L.divIcon({
         className: 'center-marker',
         iconSize: [32, 32],
         html: `<svg viewBox="0 0 24 24" fill="none" stroke="blue" stroke-width="2">
                  <path d="M12 2v20M2 12h20"/>
-               </svg>`
+               </svg>`,
       })}
       interactive={false}
     />
   );
+}
+
+/**
+ * MapPositionUpdater: Listens for user-initiated map move events and updates the external state.
+ * It only calls onPositionChange if the new center is meaningfully different.
+ */
+function MapPositionUpdater({
+  currentPosition,
+  onPositionChange,
+}: {
+  currentPosition: [number, number];
+  onPositionChange: (pos: [number, number]) => void;
+}) {
+  useMapEvents({
+    moveend: (e) => {
+      const map = e.target;
+      const center = map.getCenter();
+      // Only update if there's a real change to avoid loops.
+      if (
+        Math.abs(center.lat - currentPosition[0]) > 0.000001 ||
+        Math.abs(center.lng - currentPosition[1]) > 0.000001
+      ) {
+        onPositionChange([center.lat, center.lng]);
+      }
+    },
+  });
+  return null;
 }
 
 export default function Map() {
@@ -101,7 +127,7 @@ export default function Map() {
     description: '',
     accessible: true,
   });
-  // This state now holds the center position from the modal map (i.e. the crosshair)
+  // selectedPosition holds the center of the modal map.
   const [selectedPosition, setSelectedPosition] = useState<[number, number] | null>(null);
   const [feedback, setFeedback] = useState<Record<number, Feedback>>(
     INITIAL_PLACES.reduce<Record<number, Feedback>>((acc, place) => {
@@ -118,7 +144,7 @@ export default function Map() {
     setFeedback((prev) => {
       const currentFeedback = prev[placeId];
       const feedbackKey = type === 'like' ? 'likes' : 'dislikes';
-  
+
       if (currentFeedback.clicked === type) {
         return {
           ...prev,
@@ -149,9 +175,8 @@ export default function Map() {
       }
     });
   };
-  
 
-  // Set an initial center for the add-pin modal (using geolocation if available)
+  // When the modal opens, try to get the user's current location.
   useEffect(() => {
     if (showAddPinModal) {
       navigator.geolocation.getCurrentPosition(
@@ -182,22 +207,20 @@ export default function Map() {
     };
 
     setPlaces([...places, newPlace]);
-    setFeedback(prev => ({
+    setFeedback((prev) => ({
       ...prev,
-      [newPlace.id]: { likes: 0, dislikes: 0, clicked: null }
+      [newPlace.id]: { likes: 0, dislikes: 0, clicked: null },
     }));
     setShowAddPinModal(false);
     setFormData({ username: '', name: '', description: '', accessible: true });
     setSelectedPosition(null);
   };
 
-  // No longer using AddPinMap or a draggable Marker.
-  // Instead, the CenterMarker in the modal will update the selectedPosition automatically.
-
   const handleUseCurrentLocation = () => {
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setSelectedPosition([position.coords.latitude, position.coords.longitude]);
+        const newPos: [number, number] = [position.coords.latitude, position.coords.longitude];
+        setSelectedPosition(newPos);
       },
       (error) => {
         console.error('Error getting location', error);
@@ -228,8 +251,12 @@ export default function Map() {
               <Popup>
                 <div>
                   <h3>{place.name}</h3>
-                  <p><strong>Username:</strong> {place.username}</p>
-                  <p><strong>Description:</strong> {place.description}</p>
+                  <p>
+                    <strong>Username:</strong> {place.username}
+                  </p>
+                  <p>
+                    <strong>Description:</strong> {place.description}
+                  </p>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <div
                       onClick={() => handleFeedback(place.id, 'like')}
@@ -294,7 +321,7 @@ export default function Map() {
             <h2 className="text-2xl font-bold text-black">Add New Location</h2>
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Name:</label>
+                <label className="block text-sm font-medium text-gray-700">Username:</label>
                 <input
                   type="text"
                   value={formData.username}
@@ -346,8 +373,14 @@ export default function Map() {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                   />
-                  {/* Use the CenterMarker to display a fixed crosshair and update selectedPosition */}
-                  <CenterMarker onPositionChange={setSelectedPosition} />
+                  {/* Recenter when selectedPosition changes */}
+                  {selectedPosition && <Recenter position={selectedPosition} />}
+                  {/* Update selectedPosition when the user drags the map */}
+                  <MapPositionUpdater
+                    currentPosition={selectedPosition || STANFORD_COORDS}
+                    onPositionChange={setSelectedPosition}
+                  />
+                  <CenterMarker />
                 </MapContainer>
               </div>
 
