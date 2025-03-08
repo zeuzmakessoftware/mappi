@@ -3,7 +3,7 @@
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Heart, ThumbsDown, Plus } from 'lucide-react';
+import { Heart, ThumbsDown, Plus, Camera } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 const AccessibleIcon = L.icon({
@@ -57,9 +57,6 @@ interface Feedback {
   clicked: 'like' | 'dislike' | null;
 }
 
-/**
- * Recenter: When the external selectedPosition changes, update the map view.
- */
 function Recenter({ position }: { position: [number, number] }) {
   const map = useMap();
   useEffect(() => {
@@ -70,9 +67,6 @@ function Recenter({ position }: { position: [number, number] }) {
   return null;
 }
 
-/**
- * CenterMarker: A static marker that always sits at the current center of the map.
- */
 function CenterMarker() {
   const map = useMap();
   const center = map.getCenter();
@@ -91,10 +85,6 @@ function CenterMarker() {
   );
 }
 
-/**
- * MapPositionUpdater: Listens for user-initiated map move events and updates the external state.
- * It only calls onPositionChange if the new center is meaningfully different.
- */
 function MapPositionUpdater({
   currentPosition,
   onPositionChange,
@@ -127,7 +117,6 @@ export default function Map() {
     description: '',
     accessible: true,
   });
-  // selectedPosition holds the center of the modal map.
   const [selectedPosition, setSelectedPosition] = useState<[number, number] | null>(null);
   const [feedback, setFeedback] = useState<Record<number, Feedback>>(
     INITIAL_PLACES.reduce<Record<number, Feedback>>((acc, place) => {
@@ -176,7 +165,6 @@ export default function Map() {
     });
   };
 
-  // When the modal opens, try to get the user's current location.
   useEffect(() => {
     if (showAddPinModal) {
       navigator.geolocation.getCurrentPosition(
@@ -373,9 +361,7 @@ export default function Map() {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                   />
-                  {/* Recenter when selectedPosition changes */}
                   {selectedPosition && <Recenter position={selectedPosition} />}
-                  {/* Update selectedPosition when the user drags the map */}
                   <MapPositionUpdater
                     currentPosition={selectedPosition || STANFORD_COORDS}
                     onPositionChange={setSelectedPosition}
@@ -384,7 +370,7 @@ export default function Map() {
                 </MapContainer>
               </div>
 
-              <div className="flex gap-4 justify-end">
+              <div className="flex gap-4 justify-between">
                 <button
                   type="button"
                   onClick={() => setShowAddPinModal(false)}
